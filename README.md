@@ -151,22 +151,47 @@ and the model download is 176 MB.
    the output format -> `image_response(...)` with a download name suffix
    (`-nobg`, `-1080x1080`, ...). Raise `ApiError` for bad params.
 4. Endpoint tests in `tests/test_api.py`, and a row in the endpoint table above.
-5. In `web/lib/api.ts`, add the endpoint to the `Endpoint` type.
+5. Web: add the endpoint to `Endpoint` in `lib/api.ts` and an entry to
+   `lib/tools.ts`, a params builder (with tests) in `lib/params.ts`, and a
+   `components/tools/<Name>Tool.tsx` registered in `app/[tool]/page.tsx`.
 
 ## Web (`web/`)
 
 Next.js 15 (App Router) + TypeScript + Tailwind 4, styled with the portfolio
-style guide's tokens. So far: the landing page with the shared upload.
+style guide's tokens. Tool pages use placeholder styling for now.
 
 | File | Role |
 | --- | --- |
 | `app/globals.css` | Design tokens from the portfolio style guide ("Portfolio System"), copied from the portfolio's `app/globals.css`; change them there first and copy across |
-| `app/layout.tsx` | Fonts (Bricolage Grotesque, Figtree, JetBrains Mono via `next/font`), metadata |
-| `app/page.tsx` | Landing: the upload, with chosen images shown straight away |
+| `app/layout.tsx` | Fonts (Bricolage Grotesque, Figtree, JetBrains Mono via `next/font`; their variables sit on `<html>` so the tokens resolve), metadata |
+| `app/page.tsx` | Landing: the four tools |
+| `app/[tool]/page.tsx` | One static route per tool; anything else is a 404 |
+| `components/ToolWorkspace.tsx` | The shared flow on every tool page (below) |
+| `components/tools/*Tool.tsx` | Each tool's settings form |
+| `components/BeforeAfter.tsx` | Original vs result, split by a divide you drag or move with the arrow keys; checkerboard behind transparent results |
 | `components/Dropzone.tsx` | Shared upload: drag and drop, click or tap to choose (camera or photo library on phones), or paste from the clipboard anywhere on the page |
+| `components/fields.tsx` | Form building blocks and button styles |
+| `lib/tools.ts` | The four tools: route, name, blurb, button label |
+| `lib/params.ts` | Each tool's settings as API form fields, with plain-word validation |
+| `lib/presets.ts` | Resize presets, mirroring `api/presets.py` (a test checks they agree) |
 | `lib/files.ts` | Checks files before uploading, with the API's limits (JPG/PNG/WEBP/HEIC, 15 MB, batches of 10) |
 | `lib/api.ts` | `processImage()`, the single helper for calling the API |
-| `lib/useObjectUrls.ts` | Object URLs for instant previews, revoked when no longer shown |
+| `lib/useObjectUrl.ts`, `lib/download.ts` | Object URLs for instant previews; saving a result |
+
+### Tool pages
+
+`/remove-bg`, `/resize`, `/convert` and `/watermark` share one flow:
+
+1. Choose an image (drop, tap or paste). It shows straight away from an object URL.
+2. Adjust the settings and press the tool's button. Background removal starts
+   by itself.
+3. "Uploading… n%", then "Processing…", with Cancel. After 60 s it gives up.
+4. The result appears in the before/after slider with its pixel size, the
+   file size change and **Download**. Change a setting and press
+   **Apply changes** to run it again.
+
+Errors show the API's message. **Try again** appears when it can help
+(network, timeout, server errors); a bad file offers **Choose another image**.
 
 ### Calling the API
 
@@ -187,7 +212,7 @@ out after 60 s (upload plus processing). Failures reject with an `ApiError`:
 a "Try again" button makes sense (network, timeout, 5xx).
 
 Only Safari can show HEIC in an `<img>`, so other browsers show "No preview in
-this browser" for HEIC until the API sends back a result.
+this browser" for a HEIC original; the result (JPG, PNG or WEBP) shows as normal.
 
 ### Local setup
 
@@ -198,7 +223,7 @@ cd web
 npm install
 cp .env.example .env.local
 npm run dev          # http://localhost:3000
-npm test             # Vitest: file checks, API client
+npm test             # Vitest: file checks, API client, params, presets vs the API
 npm run typecheck
 npm run lint
 npm run build

@@ -58,6 +58,11 @@ body {
   border-radius: 2px;
 }
 
+/* Behind results that may be transparent (BeforeAfter). */
+.checkerboard {
+  background: repeating-conic-gradient(oklch(0.92 0.004 80) 0 25%, oklch(0.99 0.002 80) 0 50%) 0 0 / 16px 16px;
+}
+
 /* No animation heavier than a hover transition. */
 @media (prefers-reduced-motion: reduce) {
   *,
