@@ -237,7 +237,25 @@ npm test             # Vitest: file checks, API client, params, presets vs the A
 npm run typecheck
 npm run lint
 npm run build
+npm run e2e          # browser check against the real API (after npm run build)
 ```
+
+### End-to-end check
+
+`npm run e2e` (`web/scripts/e2e.mjs`) drives headless Chrome through the
+DevTools protocol against the built web app and the local API, with real
+uploads: progress under a throttled upload, the slider (drag and arrow keys),
+each tool's result and filename, HEIC, a damaged file, offline then Try again,
+a wrong file type, batch mode (one at a time, failures, Cancel, the 10-image
+limit, and the downloaded ZIP unpacked and checked), a 375 px phone view, and
+no console errors.
+
+It starts the API on :8000 and `next start` on :3100 itself and stops them
+afterwards, and refuses to run if either port is taken. It needs Node 22+,
+Chrome or Chromium (or `CHROME=/path/to/chrome`), the API's `.venv`, and a web
+build pointing at `http://localhost:8000` (the default). The first run
+downloads rembg's u2net model (176 MB) before the checks start. Screenshots go
+to `E2E_OUT`, or a temp folder it prints at the end.
 
 ### Environment
 
