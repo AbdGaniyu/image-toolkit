@@ -1,0 +1,23 @@
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+.claude/worktrees/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Node / Next.js (web/)
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Python (api/)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
