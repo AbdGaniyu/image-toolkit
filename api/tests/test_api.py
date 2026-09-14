@@ -4,7 +4,7 @@ import asyncio
 import io
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops
 
 from errors import ApiError
 from presets import PRESETS
@@ -121,6 +121,66 @@ def test_resize_contain_with_colour_background(upload):
         "/resize", "bands.png", width=100, height=100, fit="contain", background="#000000", format="jpg"
     )
     assert image_of(response).getpixel((50, 2)) == (0, 0, 0)
+
+
+# /watermark
+
+
+def post_watermark(client, fixture_bytes, name="bands.png", logo=None, **fields):
+    files = {"file": (name, fixture_bytes(name))}
+    if logo:
+        files["logo"] = (logo, fixture_bytes(logo))
+    return client.post("/watermark", files=files, data={k: str(v) for k, v in fields.items()})
+
+
+def test_watermark_text(upload, fixture_bytes):
+    response = upload("/watermark", "bands.png", text="© Studio", opacity=1)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert filename_of(response) == "bands-watermarked.png"
+    before = Image.open(io.BytesIO(fixture_bytes("bands.png"))).convert("RGB")
+    left, top, _, _ = ImageChops.difference(before, image_of(response).convert("RGB")).getbbox()
+    assert left > 300 and top > 100  # bottom-right of the 600x200 image
+
+
+def test_watermark_logo(client, fixture_bytes):
+    # alpha.png (red square on transparent) drawn 150 px wide, top centre.
+    response = post_watermark(client, fixture_bytes, logo="alpha.png", position="top", opacity=1)
+    assert response.status_code == 200
+    image = image_of(response).convert("RGB")
+    assert image.getpixel((300, 81)) == (255, 0, 0)  # the logo's red square
+    assert image.getpixel((230, 10)) == (0, 255, 0)  # its transparent corner: green band shows
+
+
+def test_watermark_heic_defaults_to_jpg(upload):
+    response = upload("/watermark", "photo.heic", text="x")
+    assert response.headers["content-type"] == "image/jpeg"
+    assert filename_of(response) == "photo-watermarked.jpg"
+
+
+@pytest.mark.parametrize(
+    "fields, logo",
+    [
+        ({}, None),
+        ({"text": "hi"}, "alpha.png"),
+        ({"text": "   "}, None),
+        ({"text": "x" * 101}, None),
+        ({"text": "hi", "position": "middle"}, None),
+        ({"text": "hi", "opacity": 0}, None),
+        ({"text": "hi", "opacity": 1.5}, None),
+        ({"text": "hi", "scale": 0.01}, None),
+        ({"text": "hi", "color": "white"}, None),
+    ],
+)
+def test_watermark_bad_params(client, fixture_bytes, fields, logo):
+    response = post_watermark(client, fixture_bytes, logo=logo, **fields)
+    assert (response.status_code, response.json()["code"]) == (422, "invalid_params")
+
+
+def test_watermark_bad_logo_says_it_is_the_logo(client, fixture_bytes):
+    response = post_watermark(client, fixture_bytes, logo="not-an-image.txt")
+    assert (response.status_code, response.json()["code"]) == (415, "unsupported_type")
+    assert response.json()["message"].startswith("Logo: ")
 
 
 # Errors

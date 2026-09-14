@@ -24,7 +24,15 @@ plus form params, and returns the image as an attachment with a sensible
 | `POST /convert` | `format` (`jpg`\|`png`\|`webp`, required), `quality` (1-100, default 85; ignored for PNG), `keep_metadata` | `photo.webp`, or `photo-compressed.jpg` when the format is unchanged |
 | `POST /resize` | `preset`, **or** `width` and/or `height` (1-10000); `fit` (`cover` crops, `contain` pads; default `cover`); `background` (`#rrggbb` or `transparent`, padding for `contain`; default transparent for images with alpha, else white); `format` (default: same as input, HEIC -> jpg); `quality` (default 90); `keep_metadata` | `banner-1080x1080.jpg` |
 
+| `POST /watermark` | `text` (up to 100 characters, one line) **or** `logo` (a second image file, transparency respected); `position` (`top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom`, `bottom-right`; default `bottom-right`); `opacity` (0-1, default 0.5); `scale` (watermark width as a fraction of the image width, 0.05-1, default 0.25); `color` (text colour `#rrggbb`, default white); `format`, `quality`, `keep_metadata` as for `/resize` | `photo-watermarked.jpg` |
+
 With only `width` or only `height`, the other side keeps the aspect ratio.
+
+**Watermarks** sit 3% of the shorter side in from the edges and shrink if they
+wouldn't fit. Text is Inter Medium (`api/fonts/`, SIL Open Font License,
+`fonts/LICENSE.txt`) with a thin outline in a contrasting colour so it reads
+on any background. Inter covers Latin, Greek and Cyrillic (plus symbols like
+© and ₦); other scripts would draw as boxes.
 
 **Resize presets** (`api/presets.py`; `web/lib/presets.ts` will mirror it):
 
@@ -56,12 +64,15 @@ shift; it carries no personal data.
 | 415 | `unsupported_type` | Not JPG/PNG/WEBP/HEIC |
 | 422 | `missing_file`, `invalid_params` | No `file` field; bad or conflicting params |
 
+For a bad `/watermark` logo the message starts with `Logo: `.
+
 | File | Role |
 | --- | --- |
 | `main.py` | App, CORS, routes, download filenames |
 | `codec.py` | Decode uploads (format check, HEIC, orientation, normalise) and encode results (quality, metadata, dpi) |
 | `ops/*.py` | One file per operation: pure `(PIL.Image, params) -> PIL.Image`, never touch metadata |
 | `presets.py` | Resize presets |
+| `fonts/` | Inter Medium for text watermarks (SIL Open Font License) |
 | `uploads.py` | 15 MB file cap, request body cap middleware |
 | `errors.py` | `ApiError` and the JSON error shape |
 | `tests/fixtures/` | Tiny synthetic images, one per decode path; `make_fixtures.py` regenerates them |
