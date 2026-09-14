@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens from the portfolio style guide ("Portfolio System" design doc),
+ * copied from the portfolio's app/globals.css. Colours are the design's oklch
+ * values verbatim; change them there first and copy them across.
+ */
+@theme {
+  /* Surfaces */
+  --color-paper: oklch(0.985 0.006 85);
+  --color-sand: oklch(0.94 0.006 80);
+  --color-line: oklch(0.88 0.008 80);
+  --color-line-soft: oklch(0.91 0.008 80);
+
+  /* Ink */
+  --color-ink: oklch(0.22 0.012 60);
+  --color-ink-body: oklch(0.3 0.01 60);
+  --color-ink-mid: oklch(0.34 0.01 60);
+  --color-ink-soft: oklch(0.4 0.01 60);
+  --color-ink-muted: oklch(0.44 0.01 60);
+  --color-ink-meta: oklch(0.48 0.01 60);
+  --color-ink-label: oklch(0.5 0.01 60);
+  --color-ink-faint: oklch(0.66 0.008 60);
+
+  /* Accent — clay */
+  --color-accent: oklch(0.55 0.14 42);
+  --color-accent-hover: oklch(0.45 0.13 42);
+  --color-accent-wash: oklch(0.94 0.02 60);
+  --color-accent-onink: oklch(0.75 0.09 42);
+  --color-accent-onink-hover: oklch(0.82 0.1 42);
+
+  /* Status */
+  --color-live: oklch(0.55 0.14 148);
+  --color-building: oklch(0.62 0.14 75);
+  --color-planned: oklch(0.7 0.008 60);
+  --color-down: oklch(0.55 0.16 25);
+
+  /* Type */
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* Layout */
+  --spacing-gutter: 1.25rem;
+  --container-content: 1120px;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Focus ring: 2px accent, 3px offset, always visible on keyboard focus. */
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* No animation heavier than a hover transition. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
