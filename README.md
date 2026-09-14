@@ -9,7 +9,7 @@ Processing happens on a stateless Python API; nothing is stored. See
 
 ```
 web/    Next.js 15 + TypeScript + Tailwind       -> Vercel   (not built yet)
-api/    FastAPI + Pillow + pillow-heif           -> Railway
+api/    FastAPI + Pillow + pillow-heif + rembg   -> Railway
 ```
 
 ## API (`api/`)
@@ -21,6 +21,7 @@ plus form params, and returns the image as an attachment with a sensible
 | Endpoint | Params | Returns |
 | --- | --- | --- |
 | `GET /health` | | `{"status": "ok"}` |
+| `POST /remove-bg` | `keep_metadata` | `photo-nobg.png`: always PNG, background transparent (u2net) |
 | `POST /convert` | `format` (`jpg`\|`png`\|`webp`, required), `quality` (1-100, default 85; ignored for PNG), `keep_metadata` | `photo.webp`, or `photo-compressed.jpg` when the format is unchanged |
 | `POST /resize` | `preset`, **or** `width` and/or `height` (1-10000); `fit` (`cover` crops, `contain` pads; default `cover`); `background` (`#rrggbb` or `transparent`, padding for `contain`; default transparent for images with alpha, else white); `format` (default: same as input, HEIC -> jpg); `quality` (default 90); `keep_metadata` | `banner-1080x1080.jpg` |
 
@@ -102,8 +103,24 @@ curl -F file=@photo.png -F format=webp -F quality=80 localhost:8000/convert -OJ
 | --- | --- | --- |
 | `ALLOWED_ORIGIN` | `http://localhost:3000` | Comma-separated origins allowed by CORS (the web app's URL) |
 | `PORT` | `8000` | Port the container listens on (set by Railway) |
+| `U2NET_HOME` | `~/.rembg` | Where rembg keeps models; the Docker image sets `/models` |
 
 See `api/.env.example`.
+
+### Background removal model
+
+`/remove-bg` runs rembg's **u2net** model (176 MB) on the CPU through
+onnxruntime. It predicts a soft mask (smooth edges on hair and fur), which
+becomes the PNG's alpha channel.
+
+- **Docker:** the model is downloaded and checksum-verified at build time into
+  `/models`, so a container never fetches it and cold starts stay fast.
+- **Locally:** rembg downloads it on the first `/remove-bg` call, to
+  `~/.rembg/models/u2net/` (or `$U2NET_HOME/models/u2net/`). To fetch it up
+  front: `.venv/bin/python -c "from rembg import new_session; new_session('u2net')"`.
+- **Tests** use a fake model, so they don't need the download.
+  `tests/test_ops_remove_bg.py` also runs the real model once it's on disk and
+  skips that test otherwise.
 
 ### Deploy (Railway)
 
@@ -113,6 +130,15 @@ See `api/.env.example`.
 3. Generate a domain; health check path `/health`.
 
 Local image: `docker build -t image-api api && docker run -p 8000:8000 image-api`.
+
+**Image size** (linux/amd64, rembg 2.0.84): about **906 MB unpacked, 416 MB
+compressed** (what Railway pulls). The u2net model is 168 MB of that; most of
+the rest is rembg's scientific stack (llvmlite 173 MB, scipy 139 MB, numpy
+70 MB, onnxruntime 67 MB). Docker Desktop's "disk usage" column shows ~1.4 GB
+because it counts the compressed layers and the unpacked copy. Keep the
+unpacked size under 1.5 GB (`docker run --rm --entrypoint du image-api -sxh /`).
+On a slow connection the first build takes a while: pip is ~700 MB of wheels
+and the model download is 176 MB.
 
 ### Adding a new operation
 

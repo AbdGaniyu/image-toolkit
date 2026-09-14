@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import codec
 from errors import ApiError, install_error_handlers
 from ops.convert import ConvertParams, OutputFormat, convert
+from ops.remove_bg import remove_bg
 from ops.resize import TRANSPARENT, Fit, ResizeParams, resize, target_size
 from ops.watermark import Position, WatermarkParams, watermark
 from presets import PRESETS
@@ -148,6 +149,18 @@ def watermark_image(
     image = convert(watermark(src.image, params), ConvertParams(fmt))
     name = download_name(file.filename, "-watermarked", fmt)
     return image_response(image, src, fmt, quality, keep_metadata, name)
+
+
+@app.post(
+    "/remove-bg",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}, "description": "PNG with the background transparent."}},
+)
+def remove_background(file: UploadFile, keep_metadata: KeepMetadata = False) -> Response:
+    src = read_upload(file)
+    image = remove_bg(src.image)
+    name = download_name(file.filename, "-nobg", "png")
+    return image_response(image, src, "png", 100, keep_metadata, name)  # PNG ignores quality
 
 
 def image_response(

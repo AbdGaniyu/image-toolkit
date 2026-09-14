@@ -183,6 +183,38 @@ def test_watermark_bad_logo_says_it_is_the_logo(client, fixture_bytes):
     assert response.json()["message"].startswith("Logo: ")
 
 
+# /remove-bg (tests/test_ops_remove_bg.py runs the real model when it's on disk)
+
+
+def test_remove_bg_returns_png_with_alpha(upload, fake_u2net):
+    response = upload("/remove-bg", "bands.png")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert filename_of(response) == "bands-nobg.png"
+    image = image_of(response)
+    assert image.mode == "RGBA"
+    assert image.getpixel((50, 100)) == (255, 0, 0, 255)
+    assert image.getpixel((550, 100))[3] == 0
+
+
+def test_remove_bg_from_heic(upload, fake_u2net):
+    response = upload("/remove-bg", "photo.heic")
+    assert filename_of(response) == "photo-nobg.png"
+    assert image_of(response).mode == "RGBA"
+
+
+def test_remove_bg_strips_metadata_unless_asked(upload, fake_u2net):
+    stripped = image_of(upload("/remove-bg", "rotated.jpg"))
+    kept = image_of(upload("/remove-bg", "rotated.jpg", keep_metadata="true"))
+    assert len(stripped.getexif()) == 0
+    assert kept.getexif()[0x010F] == "FixtureCam"
+
+
+def test_remove_bg_rejects_non_images(upload, fake_u2net):
+    response = upload("/remove-bg", "not-an-image.txt")
+    assert (response.status_code, response.json()["code"]) == (415, "unsupported_type")
+
+
 # Errors
 
 
