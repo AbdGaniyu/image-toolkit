@@ -167,11 +167,13 @@ style guide's tokens. Tool pages use placeholder styling for now.
 | `app/page.tsx` | Landing: the four tools |
 | `app/[tool]/page.tsx` | One static route per tool; anything else is a 404 |
 | `components/ToolWorkspace.tsx` | The shared flow on every tool page (below) |
+| `components/BatchList.tsx` | Batch mode: each image's status, per-image and ZIP downloads |
 | `components/tools/*Tool.tsx` | Each tool's settings form |
 | `components/BeforeAfter.tsx` | Original vs result, split by a divide you drag or move with the arrow keys; checkerboard behind transparent results |
 | `components/Dropzone.tsx` | Shared upload: drag and drop, click or tap to choose (camera or photo library on phones), or paste from the clipboard anywhere on the page |
 | `components/fields.tsx` | Form building blocks and button styles |
-| `lib/tools.ts` | The four tools: route, name, blurb, button label |
+| `lib/tools.ts` | The four tools: route, name, blurb, button label, and ZIP name for the batch tools |
+| `lib/batch.ts` | Runs a batch one image at a time; unique names; builds the ZIP |
 | `lib/params.ts` | Each tool's settings as API form fields, with plain-word validation |
 | `lib/presets.ts` | Resize presets, mirroring `api/presets.py` (a test checks they agree) |
 | `lib/files.ts` | Checks files before uploading, with the API's limits (JPG/PNG/WEBP/HEIC, 15 MB, batches of 10) |
@@ -192,6 +194,14 @@ style guide's tokens. Tool pages use placeholder styling for now.
 
 Errors show the API's message. **Try again** appears when it can help
 (network, timeout, server errors); a bad file offers **Choose another image**.
+
+**Batch** (resize and convert): choose 2 to 10 images and they're listed with
+their status. They go to the API one at a time with the same settings, and a
+failure doesn't stop the rest. **Cancel** skips what's left; **Try failed
+again** reruns the ones that failed for a reason worth retrying. Each result
+has its own Download, and **Download all (ZIP)** builds a ZIP in the browser
+with [JSZip](https://stuk.github.io/jszip/) (loaded only when you click it),
+making repeated names unique (`photo.jpg`, `photo (2).jpg`).
 
 ### Calling the API
 
@@ -223,7 +233,7 @@ cd web
 npm install
 cp .env.example .env.local
 npm run dev          # http://localhost:3000
-npm test             # Vitest: file checks, API client, params, presets vs the API
+npm test             # Vitest: file checks, API client, params, presets vs the API, batch + ZIP
 npm run typecheck
 npm run lint
 npm run build

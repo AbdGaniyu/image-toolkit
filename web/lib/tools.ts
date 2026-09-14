@@ -7,6 +7,8 @@ export type Tool = {
   blurb: string;
   /** Label of the button that runs it. */
   action: string;
+  /** Set for tools that take up to 10 images at once: the name of their "Download all" ZIP. */
+  batchZipName?: string;
 };
 
 export const TOOLS: readonly Tool[] = [
@@ -19,14 +21,16 @@ export const TOOLS: readonly Tool[] = [
   {
     slug: "resize",
     name: "Resize & crop",
-    blurb: "Exact sizes for Instagram, X, LinkedIn, WhatsApp and passport photos, or your own.",
+    blurb: "Exact sizes for Instagram, X, LinkedIn, WhatsApp and passport photos, or your own. Up to 10 at once.",
     action: "Resize",
+    batchZipName: "resized-images.zip",
   },
   {
     slug: "convert",
     name: "Convert & compress",
-    blurb: "Turn any photo, HEIC included, into JPG, PNG or WEBP at the quality you choose.",
+    blurb: "Turn any photo, HEIC included, into JPG, PNG or WEBP at the quality you choose. Up to 10 at once.",
     action: "Convert",
+    batchZipName: "converted-images.zip",
   },
   {
     slug: "watermark",

@@ -4,8 +4,12 @@ import { useCallback, useEffect, useId, useRef, useState, type DragEvent } from 
 import { ACCEPT, checkFiles, filesFromTransfer, MAX_BATCH } from "@/lib/files";
 
 type Props = {
-  /** Called with the files that passed the checks (never empty). */
-  onFiles: (files: File[]) => void;
+  /**
+   * Called with the files that passed the checks (never empty), plus messages
+   * for any that didn't: once files are taken the page usually replaces the
+   * zone, so it's the page's job to show those.
+   */
+  onFiles: (files: File[], rejected: string[]) => void;
   /** Most files taken at once: 1 for single-image tools, up to MAX_BATCH in batch mode. */
   max?: number;
   disabled?: boolean;
@@ -26,8 +30,8 @@ export default function Dropzone({ onFiles, max = 1, disabled = false }: Props) 
     (files: File[]) => {
       if (disabled || files.length === 0) return;
       const { accepted, rejected } = checkFiles(files, limit);
-      setProblems(rejected);
-      if (accepted.length > 0) onFiles(accepted);
+      setProblems(accepted.length > 0 ? [] : rejected);
+      if (accepted.length > 0) onFiles(accepted, rejected);
     },
     [disabled, limit, onFiles],
   );

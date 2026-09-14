@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import BatchList from "@/components/BatchList";
 import BeforeAfter from "@/components/BeforeAfter";
 import Dropzone from "@/components/Dropzone";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/fields";
 import { ApiError, processImage, type ApiResult, type Params, type Progress } from "@/lib/api";
+import { processBatch, zipResults, type ItemState } from "@/lib/batch";
 import { saveBlob } from "@/lib/download";
-import { formatBytes } from "@/lib/files";
+import { formatBytes, MAX_BATCH } from "@/lib/files";
 import type { Built } from "@/lib/params";
 import type { Tool } from "@/lib/tools";
 import { useObjectUrl } from "@/lib/useObjectUrl";
@@ -28,15 +30,24 @@ type Props = {
 };
 
 /**
- * One tool page's working area: choose an image, see it straight away, run
- * the tool with progress, then compare before/after and download.
+ * One tool page's working area. One image: see it straight away, run the tool
+ * with progress, compare before/after, download. Several (batch tools only):
+ * run them one at a time, download each or all as a ZIP.
  */
 export default function ToolWorkspace({ tool, options, buildParams, autoRun = false }: Props) {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const single = files.length === 1 ? files[0] : null;
+  const isBatch = files.length > 1;
+
   const [run, setRun] = useState<Run>({ status: "idle" });
+  const [items, setItems] = useState<ItemState[]>([]);
+  const [batchParams, setBatchParams] = useState<Params | null>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  /** Dropped or picked files that weren't taken (wrong type, too big, over the limit). */
+  const [notices, setNotices] = useState<string[]>([]);
   const [resultSize, setResultSize] = useState<[number, number] | null>(null);
-  const originalUrl = useObjectUrl(file);
+  const originalUrl = useObjectUrl(single);
   const resultUrl = useObjectUrl(run.status === "done" ? run.result.blob : null);
   const controller = useRef<AbortController | null>(null);
 
@@ -67,41 +78,102 @@ export default function ToolWorkspace({ tool, options, buildParams, autoRun = fa
     [tool.slug],
   );
 
-  const apply = (image: File | null = file) => {
-    if (!image) return;
+  const startBatch = useCallback(
+    async (batch: File[], indices: number[], params: Params) => {
+      controller.current?.abort();
+      const current = new AbortController();
+      controller.current = current;
+      setBatchParams(params);
+      setBatchRunning(true);
+      setItems((previous) => previous.map((state, index) => (indices.includes(index) ? { status: "queued" } : state)));
+      await processBatch(batch, indices, (image, options) => processImage(tool.slug, image, params, options), {
+        signal: current.signal,
+        onUpdate: (index, state) => {
+          if (controller.current === current) {
+            setItems((previous) => previous.map((item, i) => (i === index ? state : item)));
+          }
+        },
+      });
+      if (controller.current === current) setBatchRunning(false);
+    },
+    [tool.slug],
+  );
+
+  const apply = (chosen: File[] = files) => {
+    if (chosen.length === 0) return;
     const built = buildParams();
     if (!built.ok) {
       setFormError(built.error);
       return;
     }
     setFormError(null);
-    void start(image, built.params);
+    if (chosen.length > 1) void startBatch(chosen, chosen.map((_, index) => index), built.params);
+    else void start(chosen[0], built.params);
   };
 
-  const choose = (files: File[]) => {
+  const clear = (chosen: File[]) => {
     controller.current?.abort();
     controller.current = null;
-    setFile(files[0]);
+    setFiles(chosen);
     setRun({ status: "idle" });
-    if (autoRun) apply(files[0]);
-  };
-
-  const reset = () => {
-    controller.current?.abort();
-    controller.current = null;
-    setFile(null);
-    setRun({ status: "idle" });
+    setItems(chosen.map(() => ({ status: "queued" })));
+    setBatchRunning(false);
+    setBatchParams(null);
     setFormError(null);
+    setNotices([]);
   };
 
-  const running = run.status === "running";
+  const choose = (chosen: File[], rejected: string[] = []) => {
+    clear(chosen);
+    setNotices(rejected);
+    if (autoRun) apply(chosen);
+  };
+
+  const running = run.status === "running" || batchRunning;
+  const retryable = items.flatMap((state, index) => (state.status === "error" && state.error.retryable ? [index] : []));
+  const batchTouched = items.some((state) => state.status !== "queued");
+  const label = isBatch
+    ? batchTouched
+      ? "Apply changes to all"
+      : `${tool.action} ${files.length} images`
+    : run.status === "done"
+      ? "Apply changes"
+      : tool.action;
 
   return (
     <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <section aria-label="Image" className="flex min-w-0 flex-col gap-4">
-        {!file ? (
-          <Dropzone onFiles={choose} />
-        ) : (
+      <section aria-label={isBatch ? "Images" : "Image"} className="flex min-w-0 flex-col gap-4">
+        {files.length === 0 && <Dropzone onFiles={choose} max={tool.batchZipName ? MAX_BATCH : 1} />}
+
+        {files.length > 0 && notices.length > 0 && (
+          <ul role="alert" className="flex flex-col gap-1 text-sm text-down">
+            {notices.map((notice, index) => (
+              <li key={index}>{notice}</li>
+            ))}
+          </ul>
+        )}
+
+        {isBatch && (
+          <BatchList
+            files={files}
+            items={items}
+            running={batchRunning}
+            action={label}
+            onCancel={() => controller.current?.abort()}
+            onRetry={retryable.length > 0 && batchParams ? () => void startBatch(files, retryable, batchParams) : null}
+            onDownload={(index) => {
+              const state = items[index];
+              if (state.status === "done") saveBlob(state.result.blob, state.result.filename);
+            }}
+            onDownloadAll={async () => {
+              const results = items.flatMap((state) => (state.status === "done" ? [state.result] : []));
+              saveBlob(await zipResults(results), tool.batchZipName ?? "images.zip");
+            }}
+            onStartOver={() => clear([])}
+          />
+        )}
+
+        {single && (
           <>
             {run.status === "done" && originalUrl && resultUrl ? (
               <BeforeAfter
@@ -111,31 +183,31 @@ export default function ToolWorkspace({ tool, options, buildParams, autoRun = fa
                 onResultSize={(width, height) => setResultSize([width, height])}
               />
             ) : (
-              <Original key={originalUrl} url={originalUrl} name={file.name} dimmed={running} />
+              <Original key={originalUrl} url={originalUrl} name={single.name} dimmed={running} />
             )}
 
             <Status
               run={run}
               onCancel={() => controller.current?.abort()}
               onRetry={() => {
-                if (run.status === "error") void start(file, run.params);
+                if (run.status === "error") void start(single, run.params);
               }}
-              onChooseAnother={reset}
+              onChooseAnother={() => clear([])}
             />
 
             {run.status === "done" ? (
               <Result
-                original={file}
+                original={single}
                 result={run.result}
                 size={resultSize}
                 onDownload={() => saveBlob(run.result.blob, run.result.filename)}
-                onStartOver={reset}
+                onStartOver={() => clear([])}
               />
             ) : (
               run.status === "idle" && (
                 <button
                   type="button"
-                  onClick={reset}
+                  onClick={() => clear([])}
                   className="w-fit text-sm text-ink-soft underline underline-offset-4 hover:text-accent"
                 >
                   Use another image
@@ -157,10 +229,14 @@ export default function ToolWorkspace({ tool, options, buildParams, autoRun = fa
             {formError}
           </p>
         )}
-        <button type="button" onClick={() => apply()} disabled={!file || running} className={PRIMARY_BUTTON}>
-          {run.status === "done" ? "Apply changes" : tool.action}
+        <button type="button" onClick={() => apply()} disabled={files.length === 0 || running} className={PRIMARY_BUTTON}>
+          {label}
         </button>
-        {!file && <p className="text-sm text-ink-muted">Choose an image to get started.</p>}
+        {files.length === 0 && (
+          <p className="text-sm text-ink-muted">
+            {tool.batchZipName ? `Choose an image, or up to ${MAX_BATCH}, to get started.` : "Choose an image to get started."}
+          </p>
+        )}
       </aside>
     </div>
   );
