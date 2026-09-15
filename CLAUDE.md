@@ -43,12 +43,14 @@ GET  /health
 
 ## Web conventions
 ```
-web/app/page.tsx                 landing + tool picker
-web/app/[tool]/page.tsx          one route per tool: remove-bg, resize, convert, watermark
-web/components/Dropzone.tsx      shared upload (drag, tap, paste from clipboard)
-web/components/BeforeAfter.tsx   slider comparison of original vs result
-web/lib/api.ts                   single fetch helper with progress + typed errors
-web/lib/presets.ts               the resize presets (mirror of the API list)
+web/app/page.tsx                        landing + tool picker
+web/app/[tool]/page.tsx                 one route per tool: remove-bg, resize, convert, watermark
+web/app/modernist.css                   Modernist tokens + component classes (from the design project)
+web/components/LandingDrop.tsx          landing drop zone (drag, tap, paste) + "Which tool?" dialog
+web/components/workspace/Workspace.tsx  the workspace: tool tabs, files, runs, downloads
+web/components/workspace/Stage.tsx      image stage: drop zone, progress, before/after slider, previews
+web/lib/api.ts                          single fetch helper with progress + typed errors
+web/lib/presets.ts                      the resize presets (mirror of the API list)
 ```
 - Show the original instantly (object URL) before the API responds; swap in
   the result with a before/after slider.
