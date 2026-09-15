@@ -1,26 +1,27 @@
+# syntax=docker/dockerfile:1
 FROM python:3.12-slim
 
-# U2NET_HOME: where rembg keeps models (baked in below).
-# NUMBA_CACHE_DIR: pymatting (a rembg dependency) caches compiled code, and
-# site-packages isn't writable by the app user.
+# MODEL_DIR: where ops/remove_bg.py finds the model (baked in below).
 # PIP_DEFAULT_TIMEOUT: the wheels are large; don't give up on a slow link.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_DEFAULT_TIMEOUT=60 \
-    U2NET_HOME=/models \
-    NUMBA_CACHE_DIR=/tmp/numba-cache
+    MODEL_DIR=/models
 
 WORKDIR /app
 
+# Bake the u2netp model (4.7 MB, checksum-verified) into the image so no
+# request ever downloads it. Keep the hash in step with MODEL_SHA256 in
+# ops/remove_bg.py. ADD saves it owner-only; let the app user read it. (Not
+# ADD --chmod: that also applies to /models itself, which then can't be entered.)
+ADD --checksum=sha256:309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8 \
+    https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx /models/u2netp.onnx
+RUN chmod -R a+rX /models
+
 COPY requirements.txt .
 RUN pip install -r requirements.txt
-
-# Bake the u2netp model (4.7 MB, checksum-verified by rembg) into the image so
-# no request ever downloads it. It's saved owner-only; let the app user read it.
-RUN python -c "from rembg import new_session; new_session('u2netp')" \
-    && chmod -R a+rX /models
 
 COPY . .
 

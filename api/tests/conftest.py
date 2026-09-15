@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -36,16 +37,17 @@ def upload(client, fixture_bytes):
 
 
 class FakeU2net:
-    """Stands in for the u2netp session: the left half of any image is 'foreground'."""
+    """Stands in for the onnxruntime session: the left half of any image is 'foreground'."""
 
     def __init__(self):
-        self.seen = []  # sizes the model was run on
+        self.seen = []  # shapes of the tensors the model was given
 
-    def predict(self, img, *args, **kwargs):
-        self.seen.append(img.size)
-        mask = Image.new("L", img.size, 0)
-        mask.paste(255, (0, 0, img.width // 2, img.height))
-        return [mask]
+    def run(self, output_names, feeds):
+        (tensor,) = feeds.values()
+        self.seen.append(tensor.shape)
+        pred = np.zeros((1, 1, *tensor.shape[2:]), np.float32)
+        pred[..., : tensor.shape[3] // 2] = 1
+        return [pred]
 
 
 @pytest.fixture

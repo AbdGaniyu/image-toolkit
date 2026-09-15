@@ -8,8 +8,8 @@ Processing happens on a stateless Python API; nothing is stored. See
 ## Layout
 
 ```
-web/    Next.js 15 + TypeScript + Tailwind       -> Vercel
-api/    FastAPI + Pillow + pillow-heif + rembg   -> Railway
+web/    Next.js 15 + TypeScript + Tailwind             -> Vercel
+api/    FastAPI + Pillow + pillow-heif + onnxruntime   -> Railway
 ```
 
 ## API (`api/`)
@@ -103,15 +103,18 @@ curl -F file=@photo.png -F format=webp -F quality=80 localhost:8000/convert -OJ
 | --- | --- | --- |
 | `ALLOWED_ORIGIN` | `http://localhost:3000` | Comma-separated origins allowed by CORS (the web app's URL) |
 | `PORT` | `8000` | Port the container listens on (set by Railway) |
-| `U2NET_HOME` | `~/.rembg` | Where rembg keeps models; the Docker image sets `/models` |
+| `MODEL_DIR` | `~/.cache/image-toolkit` | Folder holding the background-removal model; the Docker image sets `/models` |
 
 See `api/.env.example`.
 
 ### Background removal model
 
-`/remove-bg` runs rembg's **u2netp** model (4.7 MB, the light version of
-u2net, chosen to fit Railway's free-tier memory) on the CPU through
-onnxruntime. It predicts a soft mask, which becomes the PNG's alpha channel.
+`/remove-bg` runs the **u2netp** model (4.7 MB, the light version of u2net,
+from the rembg project, chosen to fit Railway's free-tier memory) on the CPU
+with onnxruntime directly. It predicts a soft mask, which becomes the PNG's
+alpha channel. The pre- and post-processing match rembg's, but rembg itself
+isn't a dependency: importing it loaded scipy, numba and pymatting, about
+540 MB of memory before the first request.
 
 - **One session per process**, created when `ops/remove_bg.py` is imported and
   shared by every request. The server runs a single uvicorn worker, so there
@@ -119,22 +122,23 @@ onnxruntime. It predicts a soft mask, which becomes the PNG's alpha channel.
 - **One at a time:** a lock in `main.py` lets only one `/remove-bg` run per
   process; others wait their turn (each run holds several full-resolution
   copies of the image). The other endpoints aren't limited.
-- **Big inputs:** when the longer side is over 1600 px, the model runs on a
-  downscaled copy and the mask is scaled back up and applied to the
-  full-resolution original, so the output keeps every original pixel.
-- **Docker:** the model is downloaded and checksum-verified at build time into
-  `/models`, so a container never fetches it.
-- **Locally:** rembg downloads it the first time the API (or pytest) imports
-  `ops/remove_bg.py`, to `~/.rembg/models/u2netp/` (or
-  `$U2NET_HOME/models/u2netp/`), so the first run needs a network connection.
-- **Tests** use a fake model for the mask logic; `tests/test_ops_remove_bg.py`
-  also runs the real model once.
+- **Any size of input:** the model always sees a 320x320 copy. Its mask is
+  scaled up to the full image and applied to the original, so the output
+  keeps every original pixel.
+- **Docker:** the model is downloaded at build time into `/models`, checked
+  against the SHA-256 pinned in the Dockerfile, so a container never fetches it.
+- **Locally:** the first import of `ops/remove_bg.py` (starting the API, or
+  pytest) downloads it to `~/.cache/image-toolkit/` (or `$MODEL_DIR`) and
+  checks its SHA-256, so the first run needs a network connection.
+- **Changing the model:** update `MODEL_URL` and `MODEL_SHA256` in
+  `ops/remove_bg.py` and the `ADD --checksum` line in `api/Dockerfile` together.
+- **Tests** swap the onnxruntime session for a fake that marks the left half as
+  foreground; `tests/test_ops_remove_bg.py` also runs the real model once.
 
-**Memory** (one `/remove-bg` run, peak RSS, linux/amd64 container emulated on
-an M-series Mac, so absolute numbers run high): ~1.1 GB for a small photo and
-~1.3 GB for a 12 MP one, down from ~1.5 GB / ~1.7 GB with u2net. Most of it is
-`import rembg` itself (~540 MB: scipy, numba, pymatting); the u2netp session
-adds ~35 MB.
+**Memory** (container peak, linux/amd64 emulated on an M-series Mac): the app
+idles at ~150 MB; one `/remove-bg` peaks at ~410 MB for a small photo and
+~600 MB for a 12 MP one. Railway's trial plan allows 1 GB. With rembg it was
+~990 MB and ~1.2 GB, and 12 MP uploads crashed the service.
 
 ### Deploy (Railway)
 
@@ -145,13 +149,12 @@ adds ~35 MB.
 
 Local image: `docker build -t image-api api && docker run -p 8000:8000 image-api`.
 
-**Image size** (linux/amd64, rembg 2.0.84): about **742 MB unpacked, ~250 MB
-compressed** (what Railway pulls). The u2netp model is under 5 MB of that;
-most of it is rembg's scientific stack (llvmlite 173 MB, scipy 139 MB, numpy
-70 MB, onnxruntime 67 MB). Docker Desktop's "disk usage" column shows ~1.05 GB
-because it counts the compressed layers and the unpacked copy. Keep the
-unpacked size under 1.5 GB (`docker run --rm --entrypoint du image-api -sxh /`).
-On a slow connection the first build takes a while: pip is ~700 MB of wheels.
+**Image size** (linux/amd64): about **332 MB unpacked, ~115 MB compressed**
+(what Railway pulls). The Debian base is 93 MB, numpy 70 MB, onnxruntime
+67 MB, Pillow and pillow-heif 47 MB, the rest of Python ~55 MB; the model is
+under 5 MB. Docker Desktop's "disk usage" column shows ~485 MB because it
+counts the compressed layers and the unpacked copy. Keep the unpacked size
+under 1.5 GB (`docker run --rm --entrypoint du image-api -sxh /`).
 
 ### Adding a new operation
 
@@ -287,7 +290,7 @@ It starts the API on :8000 and `next start` on :3100 itself and stops them
 afterwards, and refuses to run if either port is taken. It needs Node 22+,
 Chrome or Chromium (or `CHROME=/path/to/chrome`), the API's `.venv`, and a web
 build pointing at `http://localhost:8000` (the default). The first run
-downloads rembg's u2netp model (4.7 MB) when the API starts. Screenshots go
+downloads the u2netp model (4.7 MB) before the checks start. Screenshots go
 to `E2E_OUT`, or a temp folder it prints at the end.
 
 ### Environment

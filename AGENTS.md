@@ -12,7 +12,7 @@ Monorepo, same pattern as invoice-generator:
 
 ```
 web/    Next.js 15 + TypeScript + Tailwind + framer-motion   -> Vercel (Root Directory: web)
-api/    FastAPI + Pillow + OpenCV + rembg (Python 3.12)       -> Railway (Root Directory: api)
+api/    FastAPI + Pillow + OpenCV + onnxruntime (Python 3.12) -> Railway (Root Directory: api)
 ```
 
 - The API is stateless: each endpoint takes a multipart upload plus params and
@@ -22,13 +22,13 @@ api/    FastAPI + Pillow + OpenCV + rembg (Python 3.12)       -> Railway (Root D
   WEBP, HEIC (convert HEIC on the way in via pillow-heif).
 - Every response sets `Content-Disposition: attachment; filename=...` with a
   sensible name (`photo-nobg.png`, `banner-1080x1080.jpg`).
-- Ask before adding any model download to the Docker image (rembg pulls a
-  model on first use; bake it into the image at build time so cold starts
+- Ask before adding any model download to the Docker image (models download
+  on first use; bake them into the image at build time so cold starts
   don't time out).
 
 ## API endpoints
 ```
-POST /remove-bg        -> PNG with alpha   (rembg, u2netp)
+POST /remove-bg        -> PNG with alpha   (onnxruntime, u2netp)
 POST /resize           -> params: preset | width,height, fit=cover|contain, format
 POST /convert          -> params: format (jpg|png|webp), quality (1-100)
 POST /watermark        -> params: text OR logo file, position (9-grid), opacity, scale

@@ -221,9 +221,9 @@ def test_remove_bg_rejects_non_images(upload, fake_u2net):
 def test_remove_bg_runs_one_at_a_time(upload, fake_u2net, monkeypatch):
     running = peak = 0
     counter = threading.Lock()
-    predict = fake_u2net.predict
+    run = fake_u2net.run
 
-    def slow_predict(img, *args, **kwargs):
+    def slow_run(*args):
         nonlocal running, peak
         with counter:
             running += 1
@@ -231,9 +231,9 @@ def test_remove_bg_runs_one_at_a_time(upload, fake_u2net, monkeypatch):
         time.sleep(0.05)
         with counter:
             running -= 1
-        return predict(img)
+        return run(*args)
 
-    monkeypatch.setattr(fake_u2net, "predict", slow_predict)
+    monkeypatch.setattr(fake_u2net, "run", slow_run)
     with ThreadPoolExecutor(4) as pool:
         responses = list(pool.map(lambda _: upload("/remove-bg", "photo.webp"), range(4)))
     assert [r.status_code for r in responses] == [200] * 4

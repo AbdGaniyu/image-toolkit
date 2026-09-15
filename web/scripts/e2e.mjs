@@ -95,9 +95,9 @@ for i in range(1, 12):
 const image = (name) => join(IMAGES, name);
 
 // Load the background-removal model before timing anything: a first run
-// downloads it (176 MB), which would outlast the app's 60 s timeout.
-console.log("Loading the u2net model (the first run downloads 176 MB)…");
-execFileSync(PYTHON, ["-c", "from rembg import new_session; new_session('u2net')"], { cwd: API_DIR, stdio: "inherit" });
+// downloads it (4.7 MB), which shouldn't count against the app's 60 s timeout.
+console.log("Loading the u2netp model (the first run downloads 4.7 MB)…");
+execFileSync(PYTHON, ["-c", "import ops.remove_bg"], { cwd: API_DIR, stdio: "inherit" });
 
 // --- Servers and browser -----------------------------------------------------
 

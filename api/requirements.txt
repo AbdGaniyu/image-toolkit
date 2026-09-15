@@ -1,6 +1,7 @@
 fastapi==0.141.1
+numpy==2.5.3             # tensors in and out of the background-removal model
+onnxruntime==1.30.0      # runs the u2netp background-removal model
 pillow==12.3.0
 pillow-heif==1.7.0       # HEIC input (iPhone photos)
 python-multipart==0.0.32 # FastAPI needs it to parse multipart uploads
-rembg[cpu]==2.0.84       # background removal (u2netp); [cpu] brings onnxruntime
 uvicorn==0.53.0

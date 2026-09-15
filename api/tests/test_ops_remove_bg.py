@@ -1,6 +1,8 @@
 from PIL import Image, ImageDraw
 
-from ops.remove_bg import MAX_INFERENCE_SIDE, remove_bg
+from ops.remove_bg import remove_bg
+
+MODEL_INPUT = (1, 3, 320, 320)
 
 
 def test_mask_becomes_the_alpha_channel(fake_u2net):
@@ -8,7 +10,7 @@ def test_mask_becomes_the_alpha_channel(fake_u2net):
     assert (out.mode, out.size) == ("RGBA", (40, 20))
     assert out.getpixel((5, 10)) == (10, 120, 200, 255)  # foreground kept as is
     assert out.getpixel((35, 10))[3] == 0  # background gone
-    assert fake_u2net.seen == [(40, 20)]  # small images go to the model as they are
+    assert fake_u2net.seen == [MODEL_INPUT]
 
 
 def test_existing_transparency_is_kept(fake_u2net):
@@ -23,7 +25,7 @@ def test_large_images_are_inferred_small_but_cut_out_at_full_size(fake_u2net):
     image = Image.new("RGB", (4000, 1000), (10, 120, 200))
     image.putpixel((1, 1), (255, 255, 0))  # a detail a downscale would lose
     out = remove_bg(image)
-    assert fake_u2net.seen == [(MAX_INFERENCE_SIDE, 400)]  # aspect ratio kept
+    assert fake_u2net.seen == [MODEL_INPUT]
     assert out.size == (4000, 1000)
     assert out.getpixel((1, 1)) == (255, 255, 0, 255)  # original pixels, not upscaled
     assert out.getpixel((1000, 500))[3] == 255
