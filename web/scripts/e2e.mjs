@@ -211,7 +211,7 @@ async function js(expression) {
 async function waitFor(expression, timeout = 20_000) {
   const started = Date.now();
   while (Date.now() - started < timeout) {
-    if (await js(expression)) return;
+    if (await js(expression)) return true;
     await sleep(50);
   }
   throw new Error(`timed out waiting for ${expression.slice(0, 80)}`);
@@ -227,71 +227,67 @@ try {
   await send("Page.setDownloadBehavior", { behavior: "allow", downloadPath: DOWNLOADS });
 }
 
+const DESKTOP = { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false };
 const PHONE = { width: 375, height: 812, deviceScaleFactor: 2, mobile: true };
 // React has attached its handlers: files set before this would be ignored.
 const HYDRATED = `(() => { const i = document.querySelector("input[type=file]"); return !!i && Object.keys(i).some((k) => k.startsWith("__reactProps")); })()`;
 
-async function open(path, viewport = null) {
-  if (viewport) {
-    await send("Emulation.setDeviceMetricsOverride", viewport);
-    await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
-  } else {
-    await send("Emulation.clearDeviceMetricsOverride");
-    await send("Emulation.setTouchEmulationEnabled", { enabled: false });
-  }
+async function open(path, viewport = DESKTOP) {
+  await send("Emulation.setDeviceMetricsOverride", viewport);
+  await send("Emulation.setTouchEmulationEnabled", { enabled: viewport.mobile, maxTouchPoints: viewport.mobile ? 5 : 1 });
   await send("Page.navigate", { url: APP + path });
   await sleep(100);
   await waitFor(`document.readyState === "complete"`);
-}
-async function openTool(path, viewport) {
-  await open(path, viewport);
   await waitFor(HYDRATED);
 }
-async function choose(paths, selector = "input[type=file]") {
+/** Picks files through the page's first file input (the one Drop / Replace / the stage use). */
+async function choose(paths) {
   const { root } = await send("DOM.getDocument", { depth: -1 });
-  const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector });
+  const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: "input[type=file]" });
   await send("DOM.setFileInputFiles", { nodeId, files: Array.isArray(paths) ? paths : [paths] });
 }
+/** Clicks the first enabled button, or radio label, whose text is exactly `text`. */
 const click = (text) =>
-  js(`(() => { const b = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === ${JSON.stringify(text)} && !b.disabled); if (!b) return false; b.click(); return true; })()`);
-const STATE = `(() => {
-  const live = document.querySelector("[aria-live]");
-  const img = document.querySelector('img[alt="Result"]');
-  return {
-    status: live ? live.innerText.trim().split("\\n")[0] : "",
-    alerts: [...document.querySelectorAll("[role=alert]")].map((a) => a.innerText.trim()).filter(Boolean),
-    result: img && img.complete && img.naturalWidth ? [img.naturalWidth, img.naturalHeight] : null,
-    buttons: [...document.querySelectorAll("button")].map((b) => b.textContent.trim()),
-    filename: document.querySelector("p.truncate.font-medium")?.innerText ?? null,
-    sizes: document.querySelector("p.font-mono.text-xs")?.innerText ?? null,
-  };
-})()`;
-/** Waits for a single-image run to finish, recording each status it passes through. */
+  js(`(() => { const el = [...document.querySelectorAll("button, label, a")].find((b) => b.textContent.trim() === ${JSON.stringify(text)} && !b.disabled); if (!el) return false; el.click(); return true; })()`);
+/** Sets a React-controlled input the way typing does. */
+const setInput = (selector, value) =>
+  js(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+const loaded = () => waitFor(`!!document.querySelector('img[alt="Working image"]') || /No preview of this format/.test(document.body.innerText)`);
+const STATE = `(() => ({
+  ring: document.querySelector("[role=progressbar]")?.textContent?.trim() ?? null,
+  shimmer: !!document.querySelector(".shimmer"),
+  result: document.querySelector("[data-result-line]")?.textContent?.trim() ?? null,
+  alerts: [...document.querySelectorAll("[role=alert]")].map((a) => a.innerText.trim()).filter(Boolean),
+  buttons: [...document.querySelectorAll("button")].map((b) => b.textContent.trim()),
+}))()`;
+/** Waits for a run to finish, recording the stage states it passes through. */
 async function outcome(timeout = 60_000) {
   const seen = [];
   const started = Date.now();
   while (Date.now() - started < timeout) {
     const state = await js(STATE);
-    if (state.status && seen.at(-1) !== state.status) seen.push(state.status);
-    if ((state.result && state.buttons.includes("Download")) || state.alerts.length) {
+    const now = state.ring ?? (state.shimmer ? "Processing" : null);
+    if (now && seen.at(-1) !== now) seen.push(now);
+    if (state.result || state.alerts.length) {
       await sleep(250);
-      return { ...(await js(STATE)), seen, ms: Date.now() - started };
+      const final = await js(STATE);
+      return { ...final, filename: final.result?.split(" · ")[0] ?? null, seen, ms: Date.now() - started };
     }
     await sleep(20);
   }
-  return { timedOut: true, seen };
+  return { timedOut: true, seen, alerts: [], buttons: [] };
 }
-const ROWS = `[...document.querySelectorAll("li[data-status]")].map((li) => ({ status: li.dataset.status, name: li.querySelectorAll("p")[0]?.innerText, detail: li.querySelectorAll("p")[1]?.innerText }))`;
+const ROWS = `[...document.querySelectorAll("li[data-status]")].map((li) => li.dataset.status)`;
 /** Waits for a batch to finish, tracking how many images were ever running at once. */
 async function batchOutcome(timeout = 90_000) {
   const started = Date.now();
   let mostRunning = 0;
   while (Date.now() - started < timeout) {
     const rows = await js(ROWS);
-    mostRunning = Math.max(mostRunning, rows.filter((row) => row.status === "running").length);
-    const busy = rows.some((row) => row.status === "running" || row.status === "queued");
-    const cancel = await js(`[...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Cancel")`);
-    if (!busy && !cancel) return { rows, mostRunning, ms: Date.now() - started };
+    mostRunning = Math.max(mostRunning, rows.filter((row) => row === "running").length);
+    const busy = rows.some((row) => row === "running" || row === "queued");
+    const working = await js(`[...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Working…")`);
+    if (!busy && !working) return { rows, mostRunning, ms: Date.now() - started };
     await sleep(15);
   }
   return { timedOut: true, rows: await js(ROWS), mostRunning };
@@ -319,112 +315,147 @@ const alertsText = () => js(`[...document.querySelectorAll("[role=alert]")].map(
 const summary = (o) => ({
   seen: o.seen?.length > 4 ? [...o.seen.slice(0, 3), "…", ...o.seen.slice(-2)] : o.seen,
   result: o.result,
-  filename: o.filename,
-  sizes: o.sizes,
   ms: o.ms,
 });
+const SLIDER = `document.querySelector('[role=slider][aria-label="Before and after"]')`;
 
 // --- Checks ------------------------------------------------------------------
 
 try {
-  // Landing
+  // Landing, and a drop carried through "Which tool?" into the workspace
   await open("/");
-  const links = await js(`[...document.querySelectorAll("nav a")].map((a) => a.getAttribute("href"))`);
+  const links = await js(`[...document.querySelectorAll('nav[aria-label="Tools"] a')].map((a) => a.getAttribute("href"))`);
   log("landing lists the four tools", JSON.stringify(links) === JSON.stringify(["/remove-bg", "/resize", "/convert", "/watermark"]), links);
   await shot("landing");
   const missing = await fetch(`${APP}/blur`);
   log("an unknown tool is a 404", missing.status === 404, missing.status);
-
-  // Convert under a throttled upload: original first, then %, processing, result
-  await openTool("/convert");
-  await choose(image("noise.jpg"));
-  await waitFor(`!!document.querySelector('img[alt^="Original"]')`, 5000);
-  log("the original shows before anything is uploaded", true);
-  await network(400 * 1024);
+  await choose(image("portrait.jpg"));
+  await waitFor(`!!document.querySelector("[role=dialog]")`, 5000);
+  await shot("chooser");
+  await click("Resize to preset");
+  await waitFor(`location.pathname === "/resize"`);
+  await loaded();
+  log("a landing drop asks which tool, then opens it with the image", true);
   await click("Convert");
+  await waitFor(`location.pathname === "/convert"`);
+  const kept = await js(`!!document.querySelector('img[alt="Working image"]')`);
+  log("switching tools keeps the image", kept, kept);
+
+  // Convert under a throttled upload: estimate, ring %, shimmer, result
+  await open("/convert");
+  await choose(image("noise.jpg"));
+  await loaded();
+  await waitFor(`/~\\d/.test(document.body.innerText)`, 10_000);
+  log("convert shows the browser's size estimate", true);
+  await network(400 * 1024);
+  await click("Convert image");
   let o = await outcome();
   await network(-1);
   log(
-    "convert: upload % climbs, then Processing…, then the result",
-    !!o.result && o.seen.filter((s) => /^Uploading… \d+%$/.test(s)).length >= 3 && o.seen.includes("Processing…"),
+    "convert: upload ring climbs, then processing shimmer, then the result",
+    !!o.result && o.seen.filter((s) => /^Uploading \d+%$/.test(s)).length >= 3 && o.seen.includes("Processing"),
     summary(o),
   );
-  log("convert: download named by the API", o.filename === "noise.webp", o.filename);
+  log("convert: download named by the API", o.filename === "noise.jpg" || o.filename === "noise-compressed.jpg", o.filename);
   await shot("convert-desktop");
 
-  // Slider: drag, then arrow keys
-  const box = await js(`(() => { const r = document.querySelector('input[aria-label^="Divide"]').parentElement.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`);
-  const y = box.y + box.h / 2;
-  await send("Input.dispatchMouseEvent", { type: "mousePressed", x: box.x + box.w * 0.5, y, button: "left", buttons: 1, clickCount: 1 });
-  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x + box.w * 0.65, y, button: "left", buttons: 1 });
+  // Slider: settles after the intro sweep, then drag and arrow keys
+  await sleep(1000);
+  const settled = Number(await js(`${SLIDER}.getAttribute("aria-valuenow")`));
+  const box = await js(`(() => { const r = ${SLIDER}.parentElement.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`);
+  const y = box.y + box.h / 3;
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x: box.x + box.w * 0.3, y, button: "left", buttons: 1, clickCount: 1 });
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x + box.w * 0.6, y, button: "left", buttons: 1 });
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x + box.w * 0.8, y, button: "left", buttons: 1 });
   await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: box.x + box.w * 0.8, y, button: "left", buttons: 0, clickCount: 1 });
-  const dragged = Number(await js(`document.querySelector('input[aria-label^="Divide"]').value`));
-  await js(`document.querySelector('input[aria-label^="Divide"]').focus()`);
+  const dragged = Number(await js(`${SLIDER}.getAttribute("aria-valuenow")`));
+  await js(`${SLIDER}.focus()`);
   for (let i = 0; i < 5; i++) {
     await send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 });
     await send("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 });
   }
-  const keyed = Number(await js(`document.querySelector('input[aria-label^="Divide"]').value`));
-  const clip = await js(`document.querySelector('img[alt="Result"]').parentElement.style.clipPath`);
+  const keyed = Number(await js(`${SLIDER}.getAttribute("aria-valuenow")`));
+  log("slider sweeps in, then settles at 55%", settled === 55, settled);
   log("slider follows a drag", Math.abs(dragged - 80) <= 2, dragged);
-  log("slider moves with the arrow keys", keyed === dragged - 5 && clip === `inset(0px 0px 0px ${keyed}%)`, { keyed, clip });
-  await shot("slider-desktop");
+  log("slider moves 2% per arrow key", keyed === dragged - 10, keyed);
 
-  // Resize: default preset
-  await openTool("/resize");
+  // Resize: an API preset chip, a design-only chip, and the passport preset
+  await open("/resize");
   await choose(image("portrait.jpg"));
-  await click("Resize");
+  await loaded();
+  const frame = await js(`!!document.querySelector("[data-frame]")`);
+  await click("Resize image");
   o = await outcome();
-  log("resize: Instagram post comes back 1080×1080", JSON.stringify(o.result) === "[1080,1080]" && o.filename === "portrait-1080x1080.jpg", summary(o));
+  log("resize: frame on the stage, 1:1 Post comes back 1080×1080", frame && o.filename === "portrait-1080x1080.jpg", o.filename);
   await shot("resize-desktop");
+  await click("4:5 Portrait");
+  await click("Resize image");
+  o = await outcome();
+  const portrait = o.filename;
+  await click("Passport 35×45 mm");
+  await click("Resize image");
+  o = await outcome();
+  log(
+    "resize: 4:5 is sent as a size, Passport as the API preset",
+    portrait === "portrait-1080x1350.jpg" && o.filename === "portrait-413x531.jpg",
+    { portrait, passport: o.filename },
+  );
 
-  // Watermark: asks for text, then stamps it
-  await openTool("/watermark");
+  // Watermark: live preview, asks for text, then stamps it
+  await open("/watermark");
   await choose(image("portrait.jpg"));
-  await click("Add watermark");
+  await loaded();
+  const preview = await js(`!!document.querySelector("[data-watermark-preview]")`);
+  await setInput('input[type=text][maxlength="100"]', "   ");
+  await click("Apply watermark");
   await sleep(200);
   const formAlert = await alertsText();
-  log("watermark: asks for text first", formAlert.includes("Type the text for the watermark."), formAlert);
-  await js(`document.querySelector('input[type=text]').focus()`);
-  await send("Input.insertText", { text: "© Studio Lagos" });
-  await click("Add watermark");
+  await setInput('input[type=text][maxlength="100"]', "© Studio Lagos");
+  await click("Apply watermark");
   o = await outcome();
-  log("watermark: text result", !!o.result && o.filename === "portrait-watermarked.jpg", summary(o));
+  log(
+    "watermark: previews on the stage, asks for text, then stamps it",
+    preview && formAlert.includes("Type the text for the watermark.") && o.filename === "portrait-watermarked.jpg",
+    { preview, formAlert, filename: o.filename },
+  );
   await shot("watermark-desktop");
 
-  // Remove background: starts on its own
-  await openTool("/remove-bg");
+  // Remove background, then a white background behind it
+  await open("/remove-bg");
   await choose(image("portrait.jpg"));
+  await loaded();
+  await click("Remove background");
   o = await outcome();
-  log("remove-bg: starts by itself, PNG result", !!o.result && o.filename === "portrait-nobg.png", summary(o));
+  const transparent = o.result;
+  await click("White");
+  await waitFor(`!document.querySelector("[data-result-line]").textContent.includes(${JSON.stringify(transparent?.split(" · ")[1] ?? "")})`, 5000).catch(() => false);
+  const white = await js(`document.querySelector("[data-result-line]")?.textContent`);
+  log("remove-bg: PNG cut-out, then white behind it", o.filename === "portrait-nobg.png" && white !== transparent, { transparent, white });
   await shot("remove-bg-desktop");
 
   // HEIC in Chrome: no preview of the original, result still works
-  await openTool("/convert");
+  await open("/convert");
   await choose(join(FIX, "photo.heic"));
   await sleep(600);
-  const heicFallback = await js(`document.body.innerText.includes("No preview in this browser")`);
-  await click("Convert");
+  const heicFallback = await js(`document.body.innerText.includes("No preview of this format")`);
+  await click("Convert image");
   o = await outcome();
-  log("HEIC: preview fallback, then a WEBP result", heicFallback && !!o.result && o.filename === "photo.webp", { heicFallback, filename: o.filename });
+  log("HEIC: preview fallback, then a JPG result", heicFallback && o.filename === "photo.jpg", { heicFallback, filename: o.filename });
 
   // A damaged image: the API's message, no retry
-  await openTool("/convert");
+  await open("/convert");
   await choose(join(FIX, "truncated.jpg"));
-  await click("Convert");
+  await sleep(300);
+  await click("Convert image");
   o = await outcome();
-  log(
-    "damaged image: API message, no Try again, offers another image",
-    o.alerts.some((a) => a.includes("couldn't be read")) && !o.buttons.includes("Try again") && o.buttons.includes("Choose another image"),
-    o.alerts,
-  );
+  log("damaged image: API message, no Try again", o.alerts.some((a) => a.includes("couldn't be read")) && !o.buttons.includes("Try again"), o.alerts);
 
   // Offline: retryable, and Try again works once back online
-  await openTool("/convert");
+  await open("/convert");
   await choose(image("portrait.jpg"));
+  await loaded();
   await network(-1, true);
-  await click("Convert");
+  await click("Convert image");
   o = await outcome(15_000);
   await network(-1, false);
   const offline = o.alerts.some((a) => a.includes("Couldn’t reach the image service")) && o.buttons.includes("Try again");
@@ -433,29 +464,29 @@ try {
   log("offline: says so, and Try again works", offline && !!retried.result, { alerts: o.alerts, retried: retried.result });
 
   // Wrong type is refused before upload
-  await openTool("/convert");
+  await open("/convert");
   await choose(join(FIX, "not-an-image.txt"));
   await sleep(300);
   const refused = await alertsText();
   log("a text file is refused in the browser", refused.includes("not-an-image.txt isn’t a JPG, PNG, WEBP or HEIC image."), refused);
 
   // Batch on /resize: two files with the same name plus a damaged one
-  await openTool("/resize");
+  await open("/resize");
   await choose([image("batch/a/pic.jpg"), image("batch/b/pic.jpg"), join(FIX, "truncated.jpg")]);
   await sleep(300);
   const ready = await js(ROWS);
-  log("batch: three images listed, waiting", ready.length === 3 && ready.every((row) => row.status === "queued"), ready.map((row) => row.status));
+  log("batch: three images queued", JSON.stringify(ready) === '["queued","queued","queued"]', ready);
   await click("Resize 3 images");
   let b = await batchOutcome();
   log("batch: strictly one image at a time", b.mostRunning === 1, b.mostRunning);
-  const noRetry = !(await js(`document.body.innerText.includes("Try failed again")`));
+  const batchAlert = await alertsText();
   log(
-    "batch: 2 done, the damaged one shows the API's message, no retry offered",
-    JSON.stringify(b.rows.map((row) => row.status)) === '["done","done","error"]' && b.rows[2].detail.includes("couldn't be read") && noRetry,
-    b.rows,
+    "batch: 2 done, the damaged one fails with the API's message",
+    JSON.stringify(b.rows) === '["done","done","error"]' && batchAlert.includes("couldn't be read") && !batchAlert.includes("Try again"),
+    { rows: b.rows, batchAlert },
   );
   await shot("batch-resize-desktop");
-  await click("Download all (ZIP)");
+  await click("Download all (.zip)");
   const zipPath = join(DOWNLOADS, "resized-images.zip");
   const zipped = await waitForFile(zipPath);
   // Each entry's name, format and pixel size, read with Pillow.
@@ -477,25 +508,27 @@ print(json.dumps([[n, "%s %dx%d" % ((im := Image.open(io.BytesIO(z.read(n)))).fo
     entries,
   );
 
-  // Batch offline, then Try failed again
-  await openTool("/convert");
+  // Batch offline, then Try again
+  await open("/convert");
   await choose([image("batch/a/pic.jpg"), image("portrait.jpg")]);
+  await sleep(300);
   await network(-1, true);
   await click("Convert 2 images");
   b = await batchOutcome(20_000);
   await network(-1, false);
-  const offlineRows = b.rows.map((row) => row.status);
-  const retryClicked = await click("Try failed again");
+  const offlineRows = b.rows;
+  const retryClicked = await click("Try again");
   b = await batchOutcome();
   log(
-    "batch offline: both fail, Try failed again finishes them",
-    JSON.stringify(offlineRows) === '["error","error"]' && retryClicked && b.rows.every((row) => row.status === "done"),
-    { offlineRows, after: b.rows.map((row) => row.status) },
+    "batch offline: both fail, Try again finishes them",
+    JSON.stringify(offlineRows) === '["error","error"]' && retryClicked && b.rows.every((row) => row === "done"),
+    { offlineRows, after: b.rows },
   );
 
   // Cancel part-way through a slow batch
-  await openTool("/convert");
+  await open("/convert");
   await choose([image("noise.jpg"), image("batch/b/pic.jpg"), image("portrait.jpg")]);
+  await sleep(300);
   await network(200 * 1024);
   await click("Convert 3 images");
   await waitFor(`document.querySelector("li[data-status]")?.dataset.status === "running"`, 5000);
@@ -503,10 +536,10 @@ print(json.dumps([[n, "%s %dx%d" % ((im := Image.open(io.BytesIO(z.read(n)))).fo
   await click("Cancel");
   b = await batchOutcome(10_000);
   await network(-1);
-  log("batch: Cancel skips the rest", b.rows.every((row) => row.status === "skipped"), b.rows.map((row) => row.status));
+  log("batch: Cancel skips the rest", b.rows.every((row) => row === "skipped"), b.rows);
 
   // More than 10
-  await openTool("/resize");
+  await open("/resize");
   await choose(Array.from({ length: 11 }, (_, i) => image(`many/p${i + 1}.jpg`)));
   await sleep(300);
   const many = await js(ROWS);
@@ -514,28 +547,23 @@ print(json.dumps([[n, "%s %dx%d" % ((im := Image.open(io.BytesIO(z.read(n)))).fo
   log("batch: at most 10, and the 11th is explained", many.length === 10 && tooMany.includes("p11.jpg wasn’t added: up to 10 images at a time."), { rows: many.length, tooMany });
 
   // Phone: 375 px with touch
-  await openTool("/remove-bg", PHONE);
-  const phone = await js(`({ coarse: matchMedia("(pointer: coarse)").matches, tap: document.body.innerText.includes("Tap to choose a photo"), width: document.documentElement.scrollWidth })`);
-  await shot("remove-bg-phone-empty");
-  await choose(image("portrait.jpg"));
-  o = await outcome();
-  const phoneWidth = await js(`document.documentElement.scrollWidth`);
-  log("phone: result without sideways scrolling", !!o.result && phone.width <= 375 && phoneWidth <= 375, { before: phone.width, after: phoneWidth });
-  log("phone: 'Tap to choose' on touch screens", phone.coarse && phone.tap, phone);
-  await shot("remove-bg-phone");
   await open("/", PHONE);
-  const landingWidth = await js(`document.documentElement.scrollWidth`);
-  log("phone: landing fits", landingWidth <= 375, landingWidth);
+  const landing = await js(`(() => { const cards = [...document.querySelectorAll('nav[aria-label="Tools"] li')].map((li) => li.getBoundingClientRect().left); return { columns: new Set(cards.map(Math.round)).size, width: document.documentElement.scrollWidth, choose: [...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Choose a photo" && b.offsetParent) }; })()`);
+  log("phone: landing is a 2×2 grid with Choose a photo, no sideways scroll", landing.columns === 2 && landing.choose && landing.width <= 375, landing);
   await shot("landing-phone");
-  await openTool("/watermark", PHONE);
-  await shot("watermark-phone");
-  await openTool("/resize", PHONE);
-  await choose([image("batch/a/pic.jpg"), image("batch/b/pic.jpg"), join(FIX, "truncated.jpg")]);
-  await click("Resize 3 images");
-  b = await batchOutcome();
-  const batchWidth = await js(`document.documentElement.scrollWidth`);
-  log("phone: batch list fits", batchWidth <= 375 && b.rows.length === 3, { width: batchWidth, rows: b.rows.map((row) => row.status) });
-  await shot("batch-phone");
+  await open("/remove-bg", PHONE);
+  await choose(image("portrait.jpg"));
+  await loaded();
+  await click("Remove background");
+  o = await outcome();
+  await sleep(1000);
+  const phone = await js(`(() => {
+    const img = document.querySelector('img[alt="Working image"]').getBoundingClientRect();
+    const sheet = document.querySelector(".ws-panel").getBoundingClientRect();
+    return { visible: Math.round(Math.min(img.bottom, sheet.top, innerHeight) - Math.max(img.top, 0)), width: document.documentElement.scrollWidth };
+  })()`);
+  log("phone: the image stays visible above the control sheet", !!o.result && phone.visible >= 150 && phone.width <= 375, phone);
+  await shot("remove-bg-phone");
 
   log("no errors in the page console", pageErrors.length === 0, pageErrors.slice(0, 5));
   log("no tracebacks in the API log", !api.log.includes("Traceback"), api.log.includes("Traceback") ? api.log.slice(-2000) : undefined);

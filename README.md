@@ -157,51 +157,70 @@ and the model download is 176 MB.
 
 ## Web (`web/`)
 
-Next.js 15 (App Router) + TypeScript + Tailwind 4, styled with the portfolio
-style guide's tokens. Tool pages use placeholder styling for now.
+Next.js 15 (App Router) + TypeScript + Tailwind 4. The UI follows the **Image
+Toolkit** design (Claude Design) on its **Modernist** design system: Archivo
+throughout, one red accent, square corners, strong 2px rules.
 
 | File | Role |
 | --- | --- |
-| `app/globals.css` | Design tokens from the portfolio style guide ("Portfolio System"), copied from the portfolio's `app/globals.css`; change them there first and copy across |
-| `app/layout.tsx` | Fonts (Bricolage Grotesque, Figtree, JetBrains Mono via `next/font`; their variables sit on `<html>` so the tokens resolve), metadata |
-| `app/page.tsx` | Landing: the four tools |
-| `app/[tool]/page.tsx` | One static route per tool; anything else is a 404 |
-| `components/ToolWorkspace.tsx` | The shared flow on every tool page (below) |
-| `components/BatchList.tsx` | Batch mode: each image's status, per-image and ZIP downloads |
-| `components/tools/*Tool.tsx` | Each tool's settings form |
-| `components/BeforeAfter.tsx` | Original vs result, split by a divide you drag or move with the arrow keys; checkerboard behind transparent results |
-| `components/Dropzone.tsx` | Shared upload: drag and drop, click or tap to choose (camera or photo library on phones), or paste from the clipboard anywhere on the page |
-| `components/fields.tsx` | Form building blocks and button styles |
+| `app/modernist.css` | Modernist tokens and component classes (`.btn`, `.seg`, `.input`, `.nav`, `.dialog`), copied from the design project's `_ds/modernist-…/styles.css`, which stays the source of truth |
+| `app/toolkit.css` | The design's own pieces: checkerboard, labels, tool-card animations, the processing shimmer, the phone bottom sheet |
+| `app/layout.tsx` | Archivo via `next/font` (its variable sits on `<html>` so the tokens resolve), metadata |
+| `app/page.tsx` | Landing: headline, the four tool cards, the drop zone |
+| `app/[tool]/page.tsx` | One static route per tool (anything else is a 404), rendering the workspace |
+| `components/SiteHeader.tsx` | Brand bar with the Landing / Workspace switch |
+| `components/ToolCards.tsx` | The four cards; each illustration loops only on hover or keyboard focus |
+| `components/LandingDrop.tsx` | Landing drop zone (drop, click, paste, sample photo) and the "Which tool?" dialog |
+| `components/workspace/Workspace.tsx` | The workspace: tool tabs, files, runs and downloads; images stay loaded across tools |
+| `components/workspace/Stage.tsx` | The image stage: drop zone, upload ring, shimmer, before/after handle with its intro sweep, resize frame, watermark preview |
+| `components/workspace/panels.tsx` | The four tools' control panels |
+| `components/workspace/BatchBar.tsx` | Resize/convert queue with per-file status and the ZIP download |
+| `components/InlineError.tsx` | Plain-language error under the stage |
 | `lib/tools.ts` | The four tools: route, name, blurb, button label, and ZIP name for the batch tools |
 | `lib/batch.ts` | Runs a batch one image at a time; unique names; builds the ZIP |
 | `lib/params.ts` | Each tool's settings as API form fields, with plain-word validation |
 | `lib/presets.ts` | Resize presets, mirroring `api/presets.py` (a test checks they agree) |
+| `lib/presetChips.ts` | The design's size chips by platform; API presets are sent as presets, the rest as width and height |
+| `lib/canvas.ts` | Browser-side previews: convert's size estimate, colour behind a cut-out, the watermark preview |
+| `lib/pending.ts`, `lib/sample.ts` | Hand-off of files dropped on the landing page; the sample photo (`public/sample.jpg`) |
 | `lib/files.ts` | Checks files before uploading, with the API's limits (JPG/PNG/WEBP/HEIC, 15 MB, batches of 10) |
 | `lib/api.ts` | `processImage()`, the single helper for calling the API |
 | `lib/useObjectUrl.ts`, `lib/download.ts` | Object URLs for instant previews; saving a result |
 
 ### Tool pages
 
-`/remove-bg`, `/resize`, `/convert` and `/watermark` share one flow:
+`/remove-bg`, `/resize`, `/convert` and `/watermark` are one workspace with
+four panels; switching tools keeps the images and clears the results.
 
-1. Choose an image (drop, tap or paste). It shows straight away from an object URL.
-2. Adjust the settings and press the tool's button. Background removal starts
-   by itself.
-3. "Uploading… n%", then "Processing…", with Cancel. After 60 s it gives up.
-4. The result appears in the before/after slider with its pixel size, the
-   file size change and **Download**. Change a setting and press
-   **Apply changes** to run it again.
+1. Drop, click, paste, or use the sample photo; it shows on the stage at once.
+   Dropping on the landing page asks "Which tool?" first.
+2. Set the panel and press its button. Resize draws the target frame on the
+   image, watermark previews the mark, and convert shows the browser's
+   estimate of the output size (the API's encoder differs a little).
+3. The stage shows an upload ring with the real percentage, then a shimmer
+   over the image while the API works, with Cancel. After 60 s it gives up.
+4. The result sweeps in behind the handle (result left, original right) and
+   settles at 55%; drag it or use the arrow keys (Shift for 10%). Remove
+   background can then put white, black or any colour behind the cut-out.
+   Download is in the top bar and under **Result**.
 
-Errors show the API's message. **Try again** appears when it can help
-(network, timeout, server errors); a bad file offers **Choose another image**.
+Errors appear under the stage in plain words, with **Try again** when it can
+help (network, timeout, server errors).
 
-**Batch** (resize and convert): choose 2 to 10 images and they're listed with
-their status. They go to the API one at a time with the same settings, and a
-failure doesn't stop the rest. **Cancel** skips what's left; **Try failed
-again** reruns the ones that failed for a reason worth retrying. Each result
-has its own Download, and **Download all (ZIP)** builds a ZIP in the browser
-with [JSZip](https://stuk.github.io/jszip/) (loaded only when you click it),
+**Batch** (resize and convert): up to 10 images in a queue under the stage,
+each with its status. They go to the API one at a time with the same
+settings, and a failure doesn't stop the rest; Cancel skips what's left.
+**Download all (.zip)** builds a ZIP in the browser with
+[JSZip](https://stuk.github.io/jszip/) (loaded only when you click it),
 making repeated names unique (`photo.jpg`, `photo (2).jpg`).
+
+**Where this differs from the design file.** Copy saying images never leave
+the tab ("Runs in your tab", "Every pixel stays on this machine") is replaced
+with true lines, because processing happens on the API. Resize adds WhatsApp
+DP and Passport chips (API presets the spec needs). The design's "375px &
+states" and "Hand-off" tabs are documentation, so they aren't screens here;
+the phone layout is the real responsive behaviour (tool cards 2×2, controls
+in a bottom sheet with the main action pinned).
 
 ### Calling the API
 
@@ -221,8 +240,9 @@ out after 60 s (upload plus processing). Failures reject with an `ApiError`:
 `aborted`, `bad_response`; `message` is ready to show; `retryable` says whether
 a "Try again" button makes sense (network, timeout, 5xx).
 
-Only Safari can show HEIC in an `<img>`, so other browsers show "No preview in
-this browser" for a HEIC original; the result (JPG, PNG or WEBP) shows as normal.
+Only Safari can show HEIC in an `<img>`, so other browsers show "No preview of
+this format in your browser" for a HEIC original; the result (JPG, PNG or WEBP)
+shows as normal.
 
 ### Local setup
 

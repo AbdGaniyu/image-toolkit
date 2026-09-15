@@ -1,0 +1,67 @@
+/* The Image Toolkit design's own pieces, on top of the Modernist tokens. */
+
+@keyframes om-shed { 0%, 12% { transform: translateX(0) } 62%, 100% { transform: translateX(106%) } }
+@keyframes om-snap { 0%, 38% { width: 40px; height: 52px } 52%, 88% { width: 52px; height: 52px } 100% { width: 40px; height: 52px } }
+@keyframes om-shrink { 0% { transform: scaleY(1) } 48% { transform: scaleY(0.4) } 100% { transform: scaleY(1) } }
+@keyframes om-mark { 0%, 12% { opacity: 0; transform: translateY(5px) } 48%, 74% { opacity: 1; transform: translateY(0) } 100% { opacity: 0; transform: translateY(5px) } }
+@keyframes om-shimmer { 0% { transform: translateX(-130%) } 100% { transform: translateX(130%) } }
+
+@layer components {
+  /* Transparency: neutral-200 on neutral-300, muted enough to read as absence. */
+  .checker {
+    background: repeating-conic-gradient(var(--color-neutral-300) 0% 25%, var(--color-neutral-200) 0% 50%) 50% / 22px 22px;
+  }
+  .checker-sm {
+    background: repeating-conic-gradient(var(--color-neutral-300) 0% 25%, var(--color-neutral-200) 0% 50%) 50% / 14px 14px;
+  }
+  /* Small uppercase section label. */
+  .kicker {
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--color-neutral-700);
+  }
+  .heading { font-family: var(--font-heading); font-weight: var(--font-heading-weight); }
+  .muted { color: var(--color-neutral-700); }
+  .range { width: 100%; height: 28px; accent-color: var(--color-accent); }
+
+  /* Tool cards: the illustration loops only while the card is hovered or focused. */
+  .tool-card .anim-bg { animation: none; }
+  .tool-card:hover .anim-bg, .tool-card:focus-visible .anim-bg { animation: om-shed 2.6s ease-in-out infinite; }
+  .tool-card:hover .anim-resize, .tool-card:focus-visible .anim-resize { animation: om-snap 2.8s ease-in-out infinite; }
+  .tool-card:hover .anim-convert, .tool-card:focus-visible .anim-convert { animation: om-shrink 2.4s ease-in-out infinite; }
+  .tool-card:hover .anim-convert-2, .tool-card:focus-visible .anim-convert-2 { animation: om-shrink 2.4s ease-in-out 0.12s infinite; }
+  .tool-card:hover .anim-convert-3, .tool-card:focus-visible .anim-convert-3 { animation: om-shrink 2.4s ease-in-out 0.24s infinite; }
+  .tool-card:hover .anim-wm, .tool-card:focus-visible .anim-wm { animation: om-mark 2.6s ease-in-out infinite; }
+
+  .shimmer {
+    position: absolute; top: 0; bottom: 0; width: 45%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+    animation: om-shimmer 1.1s linear infinite;
+  }
+
+  /* Phone: the control panel becomes a bottom sheet with a drag handle, and
+     its primary action stays pinned and visible. */
+  .sheet-handle { display: none; }
+  @media (max-width: 639px) {
+    .ws-panel {
+      position: sticky; bottom: 0; z-index: 20;
+      max-height: 42vh; overflow-y: auto;
+      border-top: 2px solid var(--color-text);
+      max-width: none !important;
+    }
+    .sheet-handle {
+      display: block; width: 52px; height: 5px; flex: none;
+      background: var(--color-neutral-400); align-self: center;
+    }
+    .ws-panel .run-btn {
+      position: sticky; bottom: 0; z-index: 1;
+      min-height: 48px;
+      box-shadow: 0 -12px 12px -4px var(--color-surface);
+    }
+    .ws-panel .seg-opt { min-height: 44px; }
+    .ws-tabs .seg-opt { padding: 7px 9px; font-size: 12px; min-height: 36px; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
