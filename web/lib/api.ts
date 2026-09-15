@@ -8,8 +8,22 @@
  */
 
 /** Base URL of the image API, from NEXT_PUBLIC_API_URL. */
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+export const API_URL = apiUrlFrom(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV);
 export const TIMEOUT_MS = 60_000;
+
+/**
+ * The API base URL, without a trailing slash. Defaults to the local API in
+ * development; a production build must point at https://, so a missing or
+ * plain-http NEXT_PUBLIC_API_URL fails the build instead of shipping.
+ */
+export function apiUrlFrom(value: string | undefined, nodeEnv: string | undefined): string {
+  const url = (value || "http://localhost:8000").replace(/\/+$/, "");
+  if (nodeEnv === "production" && !url.startsWith("https://")) {
+    const got = value ? `"${value}"` : "nothing (it isn't set)";
+    throw new Error(`NEXT_PUBLIC_API_URL must start with https:// in a production build; got ${got}.`);
+  }
+  return url;
+}
 
 export type Endpoint = "remove-bg" | "resize" | "convert" | "watermark";
 

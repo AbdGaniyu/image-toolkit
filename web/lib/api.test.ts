@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, filenameFrom, processImage, type Progress } from "./api";
+import { ApiError, apiUrlFrom, filenameFrom, processImage, type Progress } from "./api";
 
 type Handler = (() => void) | null;
 
@@ -214,6 +214,28 @@ describe("processImage", () => {
     const error = await rejection(processImage("resize", photo(), {}, { createXhr, signal: controller.signal }));
     expect(error.code).toBe("aborted");
     expect(made).toHaveLength(0);
+  });
+});
+
+describe("apiUrlFrom", () => {
+  it("defaults to the local API outside production", () => {
+    expect(apiUrlFrom(undefined, "development")).toBe("http://localhost:8000");
+    expect(apiUrlFrom("http://192.168.1.5:8000/", "test")).toBe("http://192.168.1.5:8000");
+  });
+
+  it("accepts an https URL in production, minus trailing slashes", () => {
+    expect(apiUrlFrom("https://api.example.com//", "production")).toBe("https://api.example.com");
+  });
+
+  it.each([
+    ["http://api.example.com", '"http://api.example.com"'],
+    ["api.example.com", '"api.example.com"'],
+    [undefined, "nothing (it isn't set)"],
+    ["", "nothing (it isn't set)"],
+  ])("refuses %j in production, naming the variable", (value, got) => {
+    expect(() => apiUrlFrom(value, "production")).toThrow(
+      `NEXT_PUBLIC_API_URL must start with https:// in a production build; got ${got}.`,
+    );
   });
 });
 

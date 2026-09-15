@@ -281,10 +281,12 @@ to `E2E_OUT`, or a temp folder it prints at the end.
 
 | Var | Default | Meaning |
 | --- | --- | --- |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Base URL of the image API |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` (dev only) | Base URL of the image API |
 
 See `web/.env.example`. It's read at build time (baked into the browser
-bundle), so set it before building, including on Vercel.
+bundle), so set it before building, including on Vercel. A production build
+(`next build`) throws unless it starts with `https://`; the localhost default
+applies only to `npm run dev` and tests.
 
 ### Running both halves
 
@@ -298,5 +300,6 @@ cd web && npm run dev    # http://localhost:3000
 ### Deploy (Vercel)
 
 1. Import the GitHub repo, set **Root Directory** to `web` (framework: Next.js).
-2. Set `NEXT_PUBLIC_API_URL` to the Railway API URL.
+2. Set `NEXT_PUBLIC_API_URL` to the Railway API URL (`https://…`; the build
+   fails otherwise).
 3. Put the resulting Vercel URL in the API's `ALLOWED_ORIGIN`.
