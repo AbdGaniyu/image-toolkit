@@ -28,7 +28,7 @@ api/    FastAPI + Pillow + OpenCV + rembg (Python 3.12)       -> Railway (Root D
 
 ## API endpoints
 ```
-POST /remove-bg        -> PNG with alpha   (rembg, u2net)
+POST /remove-bg        -> PNG with alpha   (rembg, u2netp)
 POST /resize           -> params: preset | width,height, fit=cover|contain, format
 POST /convert          -> params: format (jpg|png|webp), quality (1-100)
 POST /watermark        -> params: text OR logo file, position (9-grid), opacity, scale

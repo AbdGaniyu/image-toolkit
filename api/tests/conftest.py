@@ -36,9 +36,13 @@ def upload(client, fixture_bytes):
 
 
 class FakeU2net:
-    """Stands in for the u2net session: the left half of any image is 'foreground'."""
+    """Stands in for the u2netp session: the left half of any image is 'foreground'."""
+
+    def __init__(self):
+        self.seen = []  # sizes the model was run on
 
     def predict(self, img, *args, **kwargs):
+        self.seen.append(img.size)
         mask = Image.new("L", img.size, 0)
         mask.paste(255, (0, 0, img.width // 2, img.height))
         return [mask]
@@ -46,4 +50,6 @@ class FakeU2net:
 
 @pytest.fixture
 def fake_u2net(monkeypatch):
-    monkeypatch.setattr(ops.remove_bg, "_session", FakeU2net)
+    fake = FakeU2net()
+    monkeypatch.setattr(ops.remove_bg, "SESSION", fake)
+    return fake

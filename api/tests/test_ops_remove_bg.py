@@ -1,7 +1,6 @@
-import pytest
 from PIL import Image, ImageDraw
 
-from ops.remove_bg import remove_bg
+from ops.remove_bg import MAX_INFERENCE_SIDE, remove_bg
 
 
 def test_mask_becomes_the_alpha_channel(fake_u2net):
@@ -9,6 +8,7 @@ def test_mask_becomes_the_alpha_channel(fake_u2net):
     assert (out.mode, out.size) == ("RGBA", (40, 20))
     assert out.getpixel((5, 10)) == (10, 120, 200, 255)  # foreground kept as is
     assert out.getpixel((35, 10))[3] == 0  # background gone
+    assert fake_u2net.seen == [(40, 20)]  # small images go to the model as they are
 
 
 def test_existing_transparency_is_kept(fake_u2net):
@@ -19,20 +19,18 @@ def test_existing_transparency_is_kept(fake_u2net):
     assert out.getpixel((6, 10))[3] == 255
 
 
-def _model_on_disk() -> bool:
-    try:
-        from rembg.sessions.u2net import U2netSession
+def test_large_images_are_inferred_small_but_cut_out_at_full_size(fake_u2net):
+    image = Image.new("RGB", (4000, 1000), (10, 120, 200))
+    image.putpixel((1, 1), (255, 255, 0))  # a detail a downscale would lose
+    out = remove_bg(image)
+    assert fake_u2net.seen == [(MAX_INFERENCE_SIDE, 400)]  # aspect ratio kept
+    assert out.size == (4000, 1000)
+    assert out.getpixel((1, 1)) == (255, 255, 0, 255)  # original pixels, not upscaled
+    assert out.getpixel((1000, 500))[3] == 255
+    assert out.getpixel((3000, 500))[3] == 0
 
-        return U2netSession.resolve_existing("u2net.onnx") is not None
-    except Exception:
-        return False
 
-
-@pytest.mark.skipif(
-    not _model_on_disk(),
-    reason="u2net model not downloaded (176 MB); see README 'Background removal model'",
-)
-def test_real_u2net_cuts_out_an_object():
+def test_real_u2netp_cuts_out_an_object():
     image = Image.new("RGB", (320, 320), (245, 245, 245))
     ImageDraw.Draw(image).ellipse((80, 80, 240, 240), fill=(170, 30, 40))
     out = remove_bg(image)

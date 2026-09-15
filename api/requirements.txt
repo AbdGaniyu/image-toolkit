@@ -2,5 +2,5 @@ fastapi==0.141.1
 pillow==12.3.0
 pillow-heif==1.7.0       # HEIC input (iPhone photos)
 python-multipart==0.0.32 # FastAPI needs it to parse multipart uploads
-rembg[cpu]==2.0.84       # background removal (u2net); [cpu] brings onnxruntime
+rembg[cpu]==2.0.84       # background removal (u2netp); [cpu] brings onnxruntime
 uvicorn==0.53.0
