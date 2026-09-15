@@ -64,7 +64,15 @@ web/lib/presets.ts               the resize presets (mirror of the API list)
 - Commit messages: imperative, under 60 chars, prefixed `web:` / `api:`.
 - Never install a package without saying why; flag anything that grows the
   Docker image past 1.5 GB.
-- Design tokens from the portfolio style guide.
+- Design: the Modernist design system from the Claude Design project "Image
+  Toolkit" (claude.ai/design/p/1e2c2f6d-69f3-4de9-b30d-5f666a562df7). Tokens
+  and component classes live in `web/app/modernist.css`, copied from the
+  project's `_ds/modernist-…/styles.css`, which stays the source of truth:
+  retune there and copy across. Archivo only, one accent (#ec3013), zero
+  radius, strong 2px dividers, labels flush left. Take colours, fonts and
+  spacing from the tokens; never hard-code them.
+- Keep copy true to the architecture: images are uploaded to the API, so
+  never say they stay in the browser.
 - Keep README current: local setup for both halves, env vars, Railway/Vercel
   steps, how to add a new operation.
 - `.env.example` in both halves.
