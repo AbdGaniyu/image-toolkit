@@ -5,6 +5,7 @@ Stateless: nothing is stored, and image bytes are never logged.
 
 import os
 import re
+import threading
 from pathlib import PurePosixPath
 from typing import Annotated, Literal
 from urllib.parse import unquote
@@ -157,10 +158,19 @@ def watermark_image(
     responses={200: {"content": {"image/png": {}}, "description": "PNG with the background transparent."}},
 )
 def remove_background(file: UploadFile, keep_metadata: KeepMetadata = False) -> Response:
-    src = read_upload(file)
-    image = remove_bg(src.image)
-    name = download_name(file.filename, "-nobg", "png")
-    return image_response(image, src, "png", 100, keep_metadata, name)  # PNG ignores quality
+    # Taken before decoding, so a queued request holds only its spooled upload.
+    with _remove_bg_lock:
+        src = read_upload(file)
+        image = remove_bg(src.image)
+        name = download_name(file.filename, "-nobg", "png")
+        return image_response(image, src, "png", 100, keep_metadata, name)  # PNG ignores quality
+
+
+# One /remove-bg at a time per process: a run holds several full-resolution
+# copies of the image, and the server's memory has room for one. FastAPI runs
+# sync endpoints on a thread pool, so without this they'd overlap. The other
+# endpoints aren't limited.
+_remove_bg_lock = threading.Lock()
 
 
 def image_response(

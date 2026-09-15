@@ -116,6 +116,9 @@ onnxruntime. It predicts a soft mask, which becomes the PNG's alpha channel.
 - **One session per process**, created when `ops/remove_bg.py` is imported and
   shared by every request. The server runs a single uvicorn worker, so there
   is one copy of the model in memory.
+- **One at a time:** a lock in `main.py` lets only one `/remove-bg` run per
+  process; others wait their turn (each run holds several full-resolution
+  copies of the image). The other endpoints aren't limited.
 - **Big inputs:** when the longer side is over 1600 px, the model runs on a
   downscaled copy and the mask is scaled back up and applied to the
   full-resolution original, so the output keeps every original pixel.

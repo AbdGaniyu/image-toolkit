@@ -2,6 +2,9 @@
 
 import asyncio
 import io
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from PIL import Image, ImageChops
@@ -213,6 +216,28 @@ def test_remove_bg_strips_metadata_unless_asked(upload, fake_u2net):
 def test_remove_bg_rejects_non_images(upload, fake_u2net):
     response = upload("/remove-bg", "not-an-image.txt")
     assert (response.status_code, response.json()["code"]) == (415, "unsupported_type")
+
+
+def test_remove_bg_runs_one_at_a_time(upload, fake_u2net, monkeypatch):
+    running = peak = 0
+    counter = threading.Lock()
+    predict = fake_u2net.predict
+
+    def slow_predict(img, *args, **kwargs):
+        nonlocal running, peak
+        with counter:
+            running += 1
+            peak = max(peak, running)
+        time.sleep(0.05)
+        with counter:
+            running -= 1
+        return predict(img)
+
+    monkeypatch.setattr(fake_u2net, "predict", slow_predict)
+    with ThreadPoolExecutor(4) as pool:
+        responses = list(pool.map(lambda _: upload("/remove-bg", "photo.webp"), range(4)))
+    assert [r.status_code for r in responses] == [200] * 4
+    assert peak == 1
 
 
 # Errors
